@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chỉ số Dunn — Đánh giá chất lượng clustering</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f0f13;
+    color: #e8e6f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 48px;
+  }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.3px; margin-bottom: 4px; color: #f0eeff; }
+  .subtitle { font-size: 13px; color: #7c7a8e; margin-bottom: 24px; text-align: center; }
+  .wrap { width: 100%; max-width: 820px; }
+
+  .metrics { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .metric-card { background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 13px 17px; flex: 1; min-width: 130px; }
+  .metric-label { font-size: 11px; color: #7c7a8e; margin-bottom: 4px; }
+  .metric-val { font-size: 24px; font-weight: 500; color: #f0eeff; }
+  .metric-sub { font-size: 11px; color: #55536a; margin-top: 3px; line-height: 1.4; }
+
+  .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; color: #9a98a8; margin-bottom: 14px; }
+  .cg { display: flex; align-items: center; gap: 7px; }
+  .cg .v { font-weight: 600; color: #c8c4f0; min-width: 20px; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; outline: none; width: 80px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #7f77dd; cursor: pointer; border: 2px solid #0f0f13;
+  }
+  button {
+    font-size: 13px; padding: 6px 16px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15); background: rgba(127,119,221,0.15);
+    color: #c8c4f0; cursor: pointer; transition: background 0.15s, transform 0.1s; margin-left: auto;
+  }
+  button:hover { background: rgba(127,119,221,0.28); }
+  button:active { transform: scale(0.97); }
+
+  .canvases { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .panel { border: 0.5px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,0.02); }
+  .panel-title { font-size: 11px; color: #7c7a8e; padding: 8px 12px 0; }
+  canvas { display: block; width: 100%; }
+
+  .bar-section { margin-top: 4px; }
+  .bar-section-title { font-size: 12px; color: #7c7a8e; margin-bottom: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; }
+  .bar-label { width: 85px; text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; background: rgba(255,255,255,0.08); border-radius: 3px; height: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  .bar-val { width: 52px; font-weight: 500; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #7c7a8e; margin-top: 14px; }
+  .leg { display: flex; align-items: center; gap: 5px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .leg-line-red { width: 20px; height: 2px; background: #E24B4A; border-radius: 1px; }
+  .leg-line-green { width: 20px; height: 2px; background: #1D9E75; border-radius: 1px; }
+
+  .formula-box {
+    margin-top: 20px; background: rgba(127,119,221,0.08);
+    border: 0.5px solid rgba(127,119,221,0.25); border-radius: 10px;
+    padding: 14px 18px; font-size: 13px; color: #9a98b8; line-height: 1.8;
+  }
+  .formula-box .formula { font-size: 15px; font-weight: 500; color: #c8c4f0; margin-bottom: 6px; letter-spacing: 0.2px; }
+  .formula-box strong { color: #c8c4f0; font-weight: 500; }
+
+  @media (max-width: 540px) {
+    .canvases { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Chỉ số Dunn — Đánh giá clustering</h1>
+<p class="subtitle">Cluster tốt khi khoảng cách giữa các cluster lớn, trong cluster nhỏ</p>
+
+<div class="wrap">
+  <div class="metrics">
+    <div class="metric-card">
+      <div class="metric-label">Chỉ số Dunn</div>
+      <div class="metric-val" id="dunn-val">—</div>
+      <div class="metric-sub" id="dunn-quality">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Min inter-cluster</div>
+      <div class="metric-val" id="inter-val">—</div>
+      <div class="metric-sub">Khoảng cách nhỏ nhất giữa 2 cluster</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Max intra-cluster</div>
+      <div class="metric-val" id="intra-val">—</div>
+      <div class="metric-sub">Đường kính lớn nhất trong cluster</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="cg">
+      <span>K =</span>
+      <input type="range" min="2" max="6" value="3" id="kk" step="1">
+      <span class="v" id="kk-v">3</span>
+    </div>
+    <div class="cg">
+      <span>Phân tán</span>
+      <input type="range" min="4" max="35" value="12" id="sp" step="1">
+      <span class="v" id="sp-v">12</span>
+    </div>
+    <div class="cg">
+      <span>Khoảng cách cụm</span>
+      <input type="range" min="30" max="140" value="80" id="sep" step="1">
+      <span class="v" id="sep-v">80</span>
+    </div>
+    <button onclick="regen()">Tạo mới</button>
+  </div>
+
+  <div class="canvases">
+    <div class="panel">
+      <div class="panel-title">Scatter plot — vùng cluster</div>
+      <canvas id="sc" width="380" height="280"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Khoảng cách nổi bật</div>
+      <canvas id="dc" width="380" height="280"></canvas>
+    </div>
+  </div>
+
+  <div class="bar-section" id="bar-section"></div>
+
+  <div class="legend">
+    <div class="leg"><div class="leg-dot" style="background:#7F77DD"></div><span>Các cluster (màu phân biệt)</span></div>
+    <div class="leg"><div class="leg-line-red"></div><span>Min inter-cluster (tử số Dunn)</span></div>
+    <div class="leg"><div class="leg-line-green"></div><span>Max intra-cluster (mẫu số Dunn)</span></div>
+  </div>
+
+  <div class="formula-box">
+    <div class="formula">Dunn Index = min_inter-cluster / max_intra-cluster_diameter</div>
+    <strong>Dunn càng lớn → clustering càng tốt.</strong>
+    Không có ngưỡng cố định — chỉ số dùng để so sánh các cấu hình K với nhau.
+    Tăng khoảng cách cụm → Dunn tăng. Tăng phân tán → Dunn giảm.
+  </div>
+</div>
+
+<script>
+const COLS = ['#7F77DD','#1D9E75','#D85A30','#378ADD','#BA7517','#D4537E'];
+const W = 380, H = 280, PAD = 22;
+
+function randn() {
+  let u = 0, v = 0;
+  while (!u) u = Math.random();
+  while (!v) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function dist(a, b) { return Math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2); }
+
+function regen() {
+  const K = parseInt(document.getElementById('kk').value);
+  const sp = parseInt(document.getElementById('sp').value);
+  const sep = parseInt(document.getElementById('sep').value);
+
+  const margin = PAD + 10, space = W - margin * 2, vspace = H - margin * 2;
+  const centers = [];
+  for (let i = 0; i < K; i++) {
+    let best = null, bestMin = 0;
+    for (let t = 0; t < 200; t++) {
+      const cx = margin + Math.random() * space;
+      const cy = margin + Math.random() * vspace;
+      let minD = Infinity;
+      for (const c of centers) minD = Math.min(minD, dist([cx,cy], c));
+      if (centers.length === 0 || minD > bestMin) { bestMin = minD; best = [cx, cy]; }
+    }
+    centers.push(best);
+  }
+
+  const pts = [];
+  const perCluster = Math.floor(120 / K);
+  for (let i = 0; i < K; i++) {
+    for (let j = 0; j < perCluster; j++) {
+      const x = Math.max(PAD, Math.min(W-PAD, centers[i][0] + randn() * sp));
+      const y = Math.max(PAD, Math.min(H-PAD, centers[i][1] + randn() * sp));
+      pts.push({ x, y, k: i });
+    }
+  }
+
+  const mx = (W-PAD*2)/2 + PAD, my = (H-PAD*2)/2 + PAD;
+  const scale = sep / 80;
+  const finalPts = pts.map(p => ({
+    x: Math.max(PAD, Math.min(W-PAD, mx + (p.x-mx)*scale)),
+    y: Math.max(PAD, Math.min(H-PAD, my + (p.y-my)*scale)),
+    k: p.k
+  }));
+
+  const intraDiams = [];
+  for (let i = 0; i < K; i++) {
+    const cPts = finalPts.filter(p => p.k === i);
+    let maxD = 0;
+    for (let a = 0; a < cPts.length; a++)
+      for (let b = a+1; b < cPts.length; b++)
+        maxD = Math.max(maxD, dist([cPts[a].x,cPts[a].y],[cPts[b].x,cPts[b].y]));
+    intraDiams.push({ val: maxD, idx: i });
+  }
+
+  let minInter = Infinity, minInterPts = null;
+  for (let i = 0; i < K; i++) for (let j = i+1; j < K; j++) {
+    const pi = finalPts.filter(p => p.k === i);
+    const pj = finalPts.filter(p => p.k === j);
+    for (const a of pi) for (const b of pj) {
+      const d = dist([a.x,a.y],[b.x,b.y]);
+      if (d < minInter) { minInter = d; minInterPts = [a, b]; }
+    }
+  }
+
+  const maxIntra = Math.max(...intraDiams.map(d => d.val));
+  const maxIntraCluster = intraDiams.find(d => d.val === maxIntra).idx;
+  const dunn = maxIntra > 0 ? minInter / maxIntra : 0;
+
+  let quality, qualCol;
+  if (dunn > 1.5) { quality = 'Rất tốt — cluster tách biệt rõ ràng'; qualCol = '#1D9E75'; }
+  else if (dunn > 0.8) { quality = 'Tốt'; qualCol = '#639922'; }
+  else if (dunn > 0.4) { quality = 'Trung bình — có chồng lấn'; qualCol = '#BA7517'; }
+  else { quality = 'Kém — cluster chồng lấn nhiều'; qualCol = '#E24B4A'; }
+
+  document.getElementById('dunn-val').textContent = dunn.toFixed(3);
+  document.getElementById('dunn-val').style.color = qualCol;
+  document.getElementById('dunn-quality').textContent = quality;
+  document.getElementById('dunn-quality').style.color = qualCol;
+  document.getElementById('inter-val').textContent = minInter.toFixed(1);
+  document.getElementById('intra-val').textContent = maxIntra.toFixed(1);
+
+  const cPtsMax = finalPts.filter(p => p.k === maxIntraCluster);
+  let maxD2 = 0, pA = null, pB = null;
+  for (let a = 0; a < cPtsMax.length; a++) for (let b = a+1; b < cPtsMax.length; b++) {
+    const d = dist([cPtsMax[a].x,cPtsMax[a].y],[cPtsMax[b].x,cPtsMax[b].y]);
+    if (d > maxD2) { maxD2 = d; pA = cPtsMax[a]; pB = cPtsMax[b]; }
+  }
+  const maxIntraPts = pA ? [pA, pB] : [];
+
+  drawScatter(finalPts, K);
+  drawDistances(finalPts, K, minInterPts, maxIntraPts);
+  drawBars(intraDiams, K, minInter, maxIntra);
+}
+
+function drawScatter(pts, K) {
+  const cv = document.getElementById('sc');
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  for (let i = 0; i < K; i++) {
+    const cPts = pts.filter(p => p.k === i);
+    const col = COLS[i % COLS.length];
+    const r = parseInt(col.slice(1,3),16), g = parseInt(col.slice(3,5),16), b2 = parseInt(col.slice(5,7),16);
+    if (cPts.length > 2) {
+      const xs = cPts.map(p => p.x), ys = cPts.map(p => p.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+      const padR = 18;
+      ctx.fillStyle = `rgba(${r},${g},${b2},0.1)`;
+      ctx.strokeStyle = col; ctx.lineWidth = 0.8; ctx.setLineDash([4,3]);
+      ctx.beginPath(); ctx.roundRect(minX-padR, minY-padR, (maxX-minX)+padR*2, (maxY-minY)+padR*2, 14);
+      ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const p of cPts) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, 2*Math.PI);
+      ctx.fillStyle = col; ctx.fill();
+    }
+    const cx = cPts.reduce((s,p) => s+p.x, 0) / cPts.length;
+    const cy = cPts.reduce((s,p) => s+p.y, 0) / cPts.length;
+    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 2*Math.PI);
+    ctx.fillStyle = 'rgba(15,15,19,0.9)'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = col; ctx.font = 'bold 9px Segoe UI, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('C'+(i+1), cx, cy);
+  }
+}
+
+function drawDistances(pts, K, interPts, intraPts) {
+  const cv = document.getElementById('dc');
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  for (const p of pts) {
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, 2*Math.PI);
+    ctx.fillStyle = COLS[p.k % COLS.length] + '77'; ctx.fill();
+  }
+  if (intraPts && intraPts.length === 2) {
+    const [a, b] = intraPts;
+    const radius = Math.hypot(b.x-a.x, b.y-a.y) / 2;
+    const cx2 = (a.x+b.x)/2, cy2 = (a.y+b.y)/2;
+    ctx.beginPath(); ctx.arc(cx2, cy2, radius, 0, 2*Math.PI);
+    ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 1; ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, 2*Math.PI); ctx.fillStyle = '#1D9E75'; ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, 2*Math.PI); ctx.fillStyle = '#1D9E75'; ctx.fill();
+    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 10px Segoe UI, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('max intra', cx2, cy2 - radius - 6);
+  }
+  if (interPts && interPts.length === 2) {
+    const [a, b] = interPts;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = '#E24B4A'; ctx.lineWidth = 2.5; ctx.setLineDash([6,4]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, 2*Math.PI); ctx.fillStyle = '#E24B4A'; ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, 2*Math.PI); ctx.fillStyle = '#E24B4A'; ctx.fill();
+    const mx2 = (a.x+b.x)/2, my2 = (a.y+b.y)/2;
+    ctx.fillStyle = '#E24B4A'; ctx.font = 'bold 10px Segoe UI, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('min inter', mx2, my2 - 9);
+  }
+}
+
+function drawBars(intraDiams, K, minInter, maxIntra) {
+  const maxVal = Math.max(maxIntra, minInter) * 1.1;
+  let html = '<div class="bar-section-title">Đường kính từng cluster (intra) so với min inter-cluster</div>';
+  for (let i = 0; i < K; i++) {
+    const v = intraDiams[i].val;
+    const pct = (v / maxVal * 100).toFixed(1);
+    const isMax = v === maxIntra;
+    const col = isMax ? '#1D9E75' : COLS[i % COLS.length];
+    html += `<div class="bar-row">
+      <div class="bar-label" style="color:${col}">Cluster ${i+1}${isMax?' ← max':''}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col}99"></div></div>
+      <div class="bar-val" style="color:${col}">${v.toFixed(1)}</div>
+    </div>`;
+  }
+  const iPct = (minInter / maxVal * 100).toFixed(1);
+  html += `<div class="bar-row">
+    <div class="bar-label" style="color:#E24B4A">Min inter</div>
+    <div class="bar-track"><div class="bar-fill" style="width:${iPct}%;background:#E24B4A"></div></div>
+    <div class="bar-val" style="color:#E24B4A">${minInter.toFixed(1)}</div>
+  </div>`;
+  document.getElementById('bar-section').innerHTML = html;
+}
+
+document.getElementById('kk').oninput = function() { document.getElementById('kk-v').textContent = this.value; regen(); };
+document.getElementById('sp').oninput = function() { document.getElementById('sp-v').textContent = this.value; regen(); };
+document.getElementById('sep').oninput = function() { document.getElementById('sep-v').textContent = this.value; regen(); };
+
+regen();
+</script>
+</body>
+</html>
